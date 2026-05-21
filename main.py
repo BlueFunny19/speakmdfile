@@ -4,6 +4,7 @@ import argparse
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 from threading import Lock
 from openai import OpenAI
@@ -55,25 +56,34 @@ def parse_meta(segment: str) -> tuple[dict, str]:
 
 def generate_one(
     client: OpenAI,
-    idx: int,
-    total: int,
+    global_idx: int,
+    global_total: int,
     raw: str,
     defaults: dict,
     output_dir: Path,
-    width: int,
+    file_seg_idx: int,
+    file_seg_width: int,
+    file_label: str,
 ) -> bool:
     meta, body = parse_meta(raw)
     if not body:
-        safe_print(f"[{idx}/{total}] skipped: empty body", file=sys.stderr)
+        safe_print(
+            f"[{global_idx}/{global_total}] ({file_label}) skipped: empty body",
+            file=sys.stderr,
+        )
         return True
 
     cfg = {**defaults, **{k: v for k, v in meta.items() if k in OVERRIDABLE}}
     cfg["speed"] = float(cfg["speed"])
 
-    out_path = output_dir / f"{cfg['prefix']}_{idx:0{width}d}.{cfg['format']}"
+    out_path = (
+        output_dir
+        / f"{cfg['prefix']}_{file_seg_idx:0{file_seg_width}d}.{cfg['format']}"
+    )
     preview = body.replace("\n", " ")[:40]
     safe_print(
-        f"[{idx}/{total}] voice={cfg['voice']} -> {out_path.name}  ({preview}...)"
+        f"[{global_idx}/{global_total}] ({file_label}) "
+        f"voice={cfg['voice']} -> {out_path.name}  ({preview}...)"
     )
 
     try:
@@ -88,10 +98,13 @@ def generate_one(
             kwargs["instructions"] = cfg["instructions"]
         with client.audio.speech.with_streaming_response.create(**kwargs) as resp:
             resp.stream_to_file(out_path)
-        safe_print(f"[{idx}/{total}] done -> {out_path.name}")
+        safe_print(f"[{global_idx}/{global_total}] done -> {out_path}")
         return True
     except Exception as e:
-        safe_print(f"[{idx}/{total}] failed: {e}", file=sys.stderr)
+        safe_print(
+            f"[{global_idx}/{global_total}] ({file_label}) failed: {e}",
+            file=sys.stderr,
+        )
         return False
 
 
@@ -102,14 +115,17 @@ def main() -> int:
         "--input",
         required=True,
         type=Path,
-        help="Specify the location of the Markdown file to be read",
+        action="append",
+        help="Specify the location of the Markdown file to be read "
+        "(can be repeated to pass multiple files)",
     )
     p.add_argument(
         "-o",
         "--output-dir",
         type=Path,
-        default=Path.cwd(),
-        help="Specify the save location for the output audio file (default: current working directory)",
+        default=None,
+        help="Specify the save location for the output audio file "
+        "(default: ./out_<timestamp> under the current working directory)",
     )
     p.add_argument(
         "-u",
@@ -138,7 +154,8 @@ def main() -> int:
         "--format",
         default="mp3",
         choices=["mp3", "opus", "aac", "flac", "wav", "pcm"],
-        help="Specify the format of the saved audio files (supported: mp3 opus aac flac wav pcm) (default: mp3).",
+        help="Specify the format of the saved audio files "
+        "(supported: mp3 opus aac flac wav pcm) (default: mp3).",
     )
     p.add_argument(
         "--speed",
@@ -165,26 +182,31 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    if not args.input.is_file():
-        print(f"Error: input file not found: {args.input}", file=sys.stderr)
-        return 1
-    if args.input.suffix.lower() != ".md":
-        print(
-            f"Warning: input file is not .md (got {args.input.suffix}); "
-            f"continuing anyway, but Markdown comment syntax is expected.",
-            file=sys.stderr,
-        )
-    if args.workers < 1:
-        print("error: --workers must be >= 1", file=sys.stderr)
-        return 1
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    inputs: list[Path] = args.input
 
-    raw_text = args.input.read_text(encoding="utf-8")
-    cleaned = strip_comments(raw_text)
-    segments = split_segments(cleaned)
-    if not segments:
-        print("Error: no non-empty segments found", file=sys.stderr)
+    for inp in inputs:
+        if not inp.is_file():
+            print(f"Error: input file not found: {inp}", file=sys.stderr)
+            return 1
+        if inp.suffix.lower() != ".md":
+            print(
+                f"Warning: input file is not .md (got {inp.suffix}); "
+                f"continuing anyway, but Markdown comment syntax is expected.",
+                file=sys.stderr,
+            )
+
+    if args.workers < 1:
+        print("Error: --workers must be >= 1", file=sys.stderr)
         return 1
+
+    if args.output_dir is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_root = Path.cwd() / f"out_{timestamp}"
+    else:
+        output_root = args.output_dir
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    multi_file = len(inputs) > 1
 
     client = OpenAI(base_url=args.api_url, api_key=args.api_key)
     defaults = {
@@ -196,18 +218,51 @@ def main() -> int:
         "instructions": args.instructions,
     }
 
-    total = len(segments)
-    width = len(str(total))
+    tasks = []  # (raw, sub_dir, file_seg_idx, file_seg_width, file_label)
+    for inp in inputs:
+        raw_text = inp.read_text(encoding="utf-8")
+        cleaned = strip_comments(raw_text)
+        segments = split_segments(cleaned)
+        if not segments:
+            safe_print(
+                f"Warning: no non-empty segments in {inp}, skipped",
+                file=sys.stderr,
+            )
+            continue
+
+        sub_dir = output_root / inp.stem if multi_file else output_root
+        sub_dir.mkdir(parents=True, exist_ok=True)
+        width = len(str(len(segments)))
+        for i, seg in enumerate(segments, start=1):
+            tasks.append((seg, sub_dir, i, width, inp.stem))
+
+    if not tasks:
+        print("Error: no segments to process", file=sys.stderr)
+        return 1
+
+    total = len(tasks)
     failed = 0
 
-    safe_print(f"start: {total} segments, {args.workers} workers")
+    safe_print(
+        f"start: {total} segments across {len(inputs)} file(s), "
+        f"output={output_root}, workers={args.workers}"
+    )
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = [
             pool.submit(
-                generate_one, client, idx, total, raw, defaults, args.output_dir, width
+                generate_one,
+                client,
+                gi,
+                total,
+                raw,
+                defaults,
+                sub_dir,
+                si,
+                sw,
+                label,
             )
-            for idx, raw in enumerate(segments, start=1)
+            for gi, (raw, sub_dir, si, sw, label) in enumerate(tasks, start=1)
         ]
         for fut in as_completed(futures):
             if not fut.result():
