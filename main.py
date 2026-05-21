@@ -116,7 +116,7 @@ def main() -> int:
         required=True,
         type=Path,
         action="append",
-        help="Specify the location of the Markdown file to be read "
+        help="specify the location of the Markdown file to be read "
         "(can be repeated to pass multiple files)",
     )
     p.add_argument(
@@ -124,61 +124,61 @@ def main() -> int:
         "--output-dir",
         type=Path,
         default=None,
-        help="Specify the save location for the output audio file "
+        help="specify the save location for the output audio file "
         "(default: ./out_<timestamp> under the current working directory)",
     )
     p.add_argument(
         "-u",
         "--api-url",
         required=True,
-        help="Specify the Base URL for the OpenAI-compatible API format",
+        help="specify the Base URL for the OpenAI-compatible API format",
     )
     p.add_argument(
         "-k",
         "--api-key",
         required=True,
-        help="Specify the API key to use when calling the API",
+        help="specify the API key to use when calling the API",
     )
     p.add_argument(
         "-m",
         "--model",
         required=True,
-        help="Specify the model to use when calling the API",
-    )
-    p.add_argument(
-        "--voice",
-        default="alloy",
-        help="Specify the sound used when calling the API (default: alloy).",
-    )
-    p.add_argument(
-        "--format",
-        default="mp3",
-        choices=["mp3", "opus", "aac", "flac", "wav", "pcm"],
-        help="Specify the format of the saved audio files "
-        "(supported: mp3 opus aac flac wav pcm) (default: mp3).",
-    )
-    p.add_argument(
-        "--speed",
-        type=float,
-        default=1.0,
-        help="Specify the reading speed (default: 1.0).",
-    )
-    p.add_argument(
-        "--instructions",
-        default="",
-        help="Specify style prompts for text-to-speech.",
-    )
-    p.add_argument(
-        "--prefix",
-        default="tts",
-        help="Specify the prefix for saved audio files.",
+        help="specify the model to use when calling the API",
     )
     p.add_argument(
         "-w",
         "--workers",
         type=int,
         default=4,
-        help="Specify the number of concurrent requests (default: 4).",
+        help="specify the number of concurrent requests (default: 4).",
+    )
+    p.add_argument(
+        "--voice",
+        default="alloy",
+        help="specify the sound used when calling the API (default: alloy).",
+    )
+    p.add_argument(
+        "--format",
+        default="mp3",
+        choices=["mp3", "opus", "aac", "flac", "wav", "pcm"],
+        help="specify the format of the saved audio files "
+        "(supported: mp3 opus aac flac wav pcm) (default: mp3).",
+    )
+    p.add_argument(
+        "--speed",
+        type=float,
+        default=1.0,
+        help="specify the reading speed (default: 1.0).",
+    )
+    p.add_argument(
+        "--instructions",
+        default="",
+        help="specify style prompts for text-to-speech.",
+    )
+    p.add_argument(
+        "--prefix",
+        default="tts",
+        help="specify the prefix for saved audio files.",
     )
     args = p.parse_args()
 
@@ -186,17 +186,17 @@ def main() -> int:
 
     for inp in inputs:
         if not inp.is_file():
-            print(f"Error: input file not found: {inp}", file=sys.stderr)
+            print(f"error: input file not found: {inp}", file=sys.stderr)
             return 1
         if inp.suffix.lower() != ".md":
             print(
-                f"Warning: input file is not .md (got {inp.suffix}); "
+                f"warning: input file is not .md (got {inp.suffix}); "
                 f"continuing anyway, but Markdown comment syntax is expected.",
                 file=sys.stderr,
             )
 
     if args.workers < 1:
-        print("Error: --workers must be >= 1", file=sys.stderr)
+        print("error: --workers must be >= 1", file=sys.stderr)
         return 1
 
     if args.output_dir is None:
@@ -225,7 +225,7 @@ def main() -> int:
         segments = split_segments(cleaned)
         if not segments:
             safe_print(
-                f"Warning: no non-empty segments in {inp}, skipped",
+                f"warning: no non-empty segments in {inp}, skipped",
                 file=sys.stderr,
             )
             continue
@@ -237,7 +237,7 @@ def main() -> int:
             tasks.append((seg, sub_dir, i, width, inp.stem))
 
     if not tasks:
-        print("Error: no segments to process", file=sys.stderr)
+        print("error: no segments to process", file=sys.stderr)
         return 1
 
     total = len(tasks)
