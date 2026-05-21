@@ -96,34 +96,81 @@ def generate_one(
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Minimal OpenAI-compatible TTS batch tool.")
-    p.add_argument("-i", "--input", required=True, type=Path)
-    p.add_argument("-o", "--output-dir", type=Path, default=Path.cwd())
-    p.add_argument("-u", "--api-url", required=True)
-    p.add_argument("-k", "--api-key", required=True)
-    p.add_argument("-m", "--model", required=True)
-    p.add_argument("--voice", default="alloy")
+    p = argparse.ArgumentParser(description="Read my Markdown file(s) aloud")
     p.add_argument(
-        "--format", default="mp3", choices=["mp3", "opus", "aac", "flac", "wav", "pcm"]
+        "-i",
+        "--input",
+        required=True,
+        type=Path,
+        help="Specify the location of the Markdown file to be read",
     )
-    p.add_argument("--speed", type=float, default=1.0)
-    p.add_argument("--instructions", default="")
-    p.add_argument("--prefix", default="tts")
+    p.add_argument(
+        "-o",
+        "--output-dir",
+        type=Path,
+        default=Path.cwd(),
+        help="Specify the save location for the output audio file (default: current working directory)",
+    )
+    p.add_argument(
+        "-u",
+        "--api-url",
+        required=True,
+        help="Specify the Base URL for the OpenAI-compatible API format",
+    )
+    p.add_argument(
+        "-k",
+        "--api-key",
+        required=True,
+        help="Specify the API key to use when calling the API",
+    )
+    p.add_argument(
+        "-m",
+        "--model",
+        required=True,
+        help="Specify the model to use when calling the API",
+    )
+    p.add_argument(
+        "--voice",
+        default="alloy",
+        help="Specify the sound used when calling the API (default: alloy).",
+    )
+    p.add_argument(
+        "--format",
+        default="mp3",
+        choices=["mp3", "opus", "aac", "flac", "wav", "pcm"],
+        help="Specify the format of the saved audio files (supported: mp3 opus aac flac wav pcm) (default: mp3).",
+    )
+    p.add_argument(
+        "--speed",
+        type=float,
+        default=1.0,
+        help="Specify the reading speed (default: 1.0).",
+    )
+    p.add_argument(
+        "--instructions",
+        default="",
+        help="Specify style prompts for text-to-speech.",
+    )
+    p.add_argument(
+        "--prefix",
+        default="tts",
+        help="Specify the prefix for saved audio files.",
+    )
     p.add_argument(
         "-w",
         "--workers",
         type=int,
         default=4,
-        help="Number of concurrent requests (default: 4).",
+        help="Specify the number of concurrent requests (default: 4).",
     )
     args = p.parse_args()
 
     if not args.input.is_file():
-        print(f"error: input file not found: {args.input}", file=sys.stderr)
+        print(f"Error: input file not found: {args.input}", file=sys.stderr)
         return 1
     if args.input.suffix.lower() != ".md":
         print(
-            f"warning: input file is not .md (got {args.input.suffix}); "
+            f"Warning: input file is not .md (got {args.input.suffix}); "
             f"continuing anyway, but Markdown comment syntax is expected.",
             file=sys.stderr,
         )
@@ -136,7 +183,7 @@ def main() -> int:
     cleaned = strip_comments(raw_text)
     segments = split_segments(cleaned)
     if not segments:
-        print("error: no non-empty segments found", file=sys.stderr)
+        print("Error: no non-empty segments found", file=sys.stderr)
         return 1
 
     client = OpenAI(base_url=args.api_url, api_key=args.api_key)
